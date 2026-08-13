@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+@theme {
+  --color-space-950: #070b16;
+  --color-space-900: #0b1022;
+  --color-space-850: #101733;
+  --color-space-800: #141c3d;
+  --color-space-700: #1e2a55;
+  --color-space-600: #2b3a72;
+  --color-solar-300: #ffd199;
+  --color-solar-400: #ffb347;
+  --color-solar-500: #f97316;
+  --color-solar-600: #ea580c;
+  --color-lunar-400: #94a3b8;
+  --color-lunar-500: #64748b;
+  --color-corona-300: #c7d2fe;
+  --color-corona-400: #a5b4fc;
+  --color-corona-500: #818cf8;
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-space-950 text-slate-200 font-sans;
+    background-image:
+      radial-gradient(ellipse 80% 50% at 20% -10%, rgba(249, 115, 22, 0.12), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 90% 10%, rgba(129, 140, 248, 0.10), transparent 60%),
+      radial-gradient(ellipse 70% 60% at 50% 110%, rgba(100, 116, 139, 0.10), transparent 60%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  ::selection {
+    background: rgba(249, 115, 22, 0.35);
+  }
+
+  /* P0.3 · foco visible de alto contraste, independiente del color */
+  :focus-visible {
+    outline: 2px solid var(--color-solar-400);
+    outline-offset: 2px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
+  /* scrollbars consistentes con el tema */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-space-600) transparent;
+  }
+  *::-webkit-scrollbar {
+    height: 8px;
+    width: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-space-600);
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-space-900/70 backdrop-blur-xl border border-white/5;
+  }
+  .glass-strong {
+    @apply bg-space-850/80 backdrop-blur-2xl border border-white/10;
+  }
+  .text-gradient-solar {
+    background: linear-gradient(100deg, #ffedd5 0%, #ffb347 45%, #f97316 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .starfield {
+    background-image:
+      radial-gradient(1px 1px at 20% 30%, rgba(255, 255, 255, 0.8), transparent),
+      radial-gradient(1px 1px at 80% 20%, rgba(255, 255, 255, 0.6), transparent),
+      radial-gradient(1.5px 1.5px at 40% 70%, rgba(199, 210, 254, 0.7), transparent),
+      radial-gradient(1px 1px at 65% 55%, rgba(255, 255, 255, 0.5), transparent),
+      radial-gradient(1.5px 1.5px at 90% 80%, rgba(255, 255, 255, 0.6), transparent),
+      radial-gradient(1px 1px at 10% 85%, rgba(199, 210, 254, 0.5), transparent);
+  }
+  .num {
+    @apply font-mono tabular-nums;
+  }
+
+  /* P0.2/2.5 · área táctil mínima de 44×44px (WCAG 2.2) */
+  .touch-target {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+/* P0.7 · respeta la preferencia de movimiento reducido */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* P2.20 · impresión en claro para las tablas */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #ffffff !important;
+    color: #111 !important;
+  }
+  .glass,
+  .glass-strong {
+    background: #ffffff !important;
+    border-color: #ddd !important;
+    backdrop-filter: none !important;
+    box-shadow: none !important;
+  }
+  table {
+    border-collapse: collapse;
+  }
+  th,
+  td {
+    color: #111 !important;
+    border-color: #bbb !important;
+  }
+}
