@@ -8,6 +8,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css' // Estilos globales (tema oscuro espacial, tipografía, etc.)
 import App from './App' // Componente principal que contiene toda la interfaz
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 // Busca el elemento <div id="root"> que hay en index.html y "monta"
 // (pinta) dentro de él el componente <App />.
@@ -15,6 +16,8 @@ import App from './App' // Componente principal que contiene toda la interfaz
 // errores; no afecta a lo que ve el usuario en producción.
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </StrictMode>,
 )

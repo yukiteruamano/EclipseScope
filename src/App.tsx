@@ -11,8 +11,9 @@ import SarosPanel from './components/SarosPanel' // Pestaña "Ciclo de Saros"
 import BesselianPanel from './components/BesselianPanel' // Pestaña "Elementos Besselianos"
 import EclipseTimeline from './components/EclipseTimeline' // Línea de tiempo de eclipses
 import { TableSkeleton, CardsSkeleton } from './components/Skeleton' // Cargas provisionales (esqueletos)
-import { computeEclipsesAsync, type EngineResult } from './core/engine' // Motor de cálculo
+import { computeEclipsesAsync, type EngineResult } from './core/engine' // Motor de cálculo (fallback si no hay Worker)
 import { COUNTRIES, DEFAULT_COUNTRY_CODE, type Country } from './data/countries'
+import type { WorkerResponse } from './core/eclipse.worker'
 
 // Identifica cada pestaña de la interfaz.
 type TabId = 'saros' | 'besselian'
@@ -32,18 +33,26 @@ function todayISO(): string {
 }
 
 // Lee la fecha guardada en localStorage. Si no existe o tiene un formato
-// inválido, se usa la fecha de hoy.
+// inválido, se usa la fecha de hoy. Protegido contra modo privado / SSR.
 function loadDate(): string {
-  const v = localStorage.getItem(LS_DATE)
-  return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : todayISO()
+  try {
+    const v = localStorage.getItem(LS_DATE)
+    return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : todayISO()
+  } catch {
+    return todayISO()
+  }
 }
 
 // Lee el país guardado en localStorage. Si no existe, se usa el país
 // por defecto (España). La lista COUNTRIES está ordenada alfabéticamente.
 function loadCountry(): Country {
-  const code = localStorage.getItem(LS_COUNTRY)
-  const found = code ? COUNTRIES.find((c) => c.code === code) : undefined
-  return found ?? COUNTRIES.find((c) => c.code === DEFAULT_COUNTRY_CODE) ?? COUNTRIES[0]
+  try {
+    const code = localStorage.getItem(LS_COUNTRY)
+    const found = code ? COUNTRIES.find((c) => c.code === code) : undefined
+    return found ?? COUNTRIES.find((c) => c.code === DEFAULT_COUNTRY_CODE) ?? COUNTRIES[0]
+  } catch {
+    return COUNTRIES.find((c) => c.code === DEFAULT_COUNTRY_CODE) ?? COUNTRIES[0]
+  }
 }
 
 // Convierte el código de país ISO (ej: "ES") en su bandera emoji
@@ -71,32 +80,127 @@ export default function App() {
   const calcId = useRef(0)
   const debounceRef = useRef<number | undefined>(undefined)
   const firstRun = useRef(true) // true durante el primer render (arranque de la app)
+  const workerRef = useRef<Worker | null>(null)
+
+  // Inicializa el Worker una vez (si el navegador lo soporta). Si falla, se usa el fallback async.
+  function getWorker(): Worker | null {
+    if (workerRef.current) return workerRef.current
+    try {
+      if (typeof Worker === 'undefined') return null
+      const w = new Worker(new URL('./core/eclipse.worker.ts', import.meta.url), { type: 'module' })
+      workerRef.current = w
+      return w
+    } catch {
+      return null
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      workerRef.current?.terminate()
+      workerRef.current = null
+    }
+  }, [])
 
   // P0.10 · persistencia de parámetros: cada vez que cambia la fecha o el
   // país, se guarda en localStorage para recordarlo en la próxima visita.
   useEffect(() => {
-    localStorage.setItem(LS_DATE, date)
+    try {
+      localStorage.setItem(LS_DATE, date)
+    } catch {
+      /* modo privado sin storage */
+    }
   }, [date])
   useEffect(() => {
-    localStorage.setItem(LS_COUNTRY, country.code)
+    try {
+      localStorage.setItem(LS_COUNTRY, country.code)
+    } catch {
+      /* modo privado sin storage */
+    }
   }, [country])
 
-  // Lanza el cálculo de los 15 próximos eclipses. Es "async" (asíncrono),
-  // por lo que no bloquea la interfaz: se muestra una barra de progreso
-  // mientras trabaja. El contador calcId evita pintar resultados obsoletos.
+  // Lanza el cálculo de los 15 próximos eclipses. Intenta usar Web Worker
+  // (no bloquea el hilo principal); si no está disponible, usa el fallback async.
   const runCalc = useCallback(async (d: string, c: Country) => {
     const id = ++calcId.current // Nuevo ticket: cualquier cálculo anterior queda invalidado
     setLoading(true)
     setError(null)
     setProgress(null)
     setStale(false)
+    const start = new Date(`${d}T12:00:00Z`)
+    if (Number.isNaN(+start)) {
+      setError('Fecha no válida')
+      setLoading(false)
+      return
+    }
+
+    const worker = getWorker()
+    if (worker) {
+      // Ruta Worker
+      const onMessage = (e: MessageEvent<WorkerResponse>) => {
+        const data = e.data
+        if (data.id !== id) return // ignorar respuestas de cálculos obsoletos
+        if (data.type === 'progress') {
+          setProgress({ done: data.done, total: data.total })
+        } else if (data.type === 'done') {
+          worker.removeEventListener('message', onMessage)
+          worker.removeEventListener('error', onError)
+          if (calcId.current !== id) return
+          const eclipses = data.eclipses
+          // Las fechas pueden venir como string tras el clone; rehidratar si hace falta
+          const rehydrated = eclipses.map((ed) => ({
+            ...ed,
+            peak: new Date(ed.peak),
+            elements: { ...ed.elements, t: new Date(ed.elements.t) },
+            centralLine: ed.centralLine.map((p) => ({ ...p, t: new Date(p.t) })),
+            local: {
+              ...ed.local,
+              contacts: {
+                partialBegin: ed.local.contacts.partialBegin ? new Date(ed.local.contacts.partialBegin) : undefined,
+                totalBegin: ed.local.contacts.totalBegin ? new Date(ed.local.contacts.totalBegin) : undefined,
+                peak: ed.local.contacts.peak ? new Date(ed.local.contacts.peak) : undefined,
+                totalEnd: ed.local.contacts.totalEnd ? new Date(ed.local.contacts.totalEnd) : undefined,
+                partialEnd: ed.local.contacts.partialEnd ? new Date(ed.local.contacts.partialEnd) : undefined,
+              },
+              maxState: ed.local.maxState
+                ? { ...ed.local.maxState, t: new Date(ed.local.maxState.t), elements: { ...ed.local.maxState.elements, t: new Date(ed.local.maxState.elements.t) } }
+                : null,
+            },
+          }))
+          setResult({ eclipses: rehydrated as EngineResult['eclipses'], startDate: new Date(data.startIso), country: data.country })
+          setLoading(false)
+          setProgress(null)
+          setStale(false)
+        } else if (data.type === 'error') {
+          worker.removeEventListener('message', onMessage)
+          worker.removeEventListener('error', onError)
+          if (calcId.current !== id) return
+          setError(data.message)
+          setLoading(false)
+          setProgress(null)
+          setStale(false)
+        }
+      }
+      const onError = (ev: ErrorEvent) => {
+        worker.removeEventListener('message', onMessage)
+        worker.removeEventListener('error', onError)
+        if (calcId.current !== id) return
+        setError(ev.message || 'Error en el Worker')
+        setLoading(false)
+        setProgress(null)
+        setStale(false)
+      }
+      worker.addEventListener('message', onMessage)
+      worker.addEventListener('error', onError)
+      worker.postMessage({ id, startIso: start.toISOString(), country: c, count: 15 })
+      return
+    }
+
+    // Fallback: cálculo en el hilo principal con cesión al event loop
     try {
-      // Se usa mediodía UTC como referencia de la fecha elegida.
-      const start = new Date(`${d}T12:00:00Z`)
-      if (Number.isNaN(+start)) throw new Error('Fecha no válida')
-      // El motor calcula 15 eclipses y avisa del progreso en cada uno.
-      const res = await computeEclipsesAsync(start, c, 15, (done, total) => setProgress({ done, total }))
-      // Si mientras tanto se lanzó otro cálculo, ignoramos este resultado.
+      const res = await computeEclipsesAsync(start, c, 15, (done, total) => {
+        if (calcId.current === id) setProgress({ done, total })
+      })
       if (calcId.current !== id) return
       setResult(res)
     } catch (err) {

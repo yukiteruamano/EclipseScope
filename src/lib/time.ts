@@ -29,25 +29,46 @@ export function formatUTC(d: Date): string {
 }
 
 // Fecha + hora en la zona horaria indicada (por ejemplo la del país).
+// Protegido contra tz inválida (fallback UTC).
 export function formatLocal(d: Date, tz: string): string {
-  return new Intl.DateTimeFormat('es-ES', {
-    timeZone: tz,
-    day: '2-digit',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(d)
+  try {
+    return new Intl.DateTimeFormat('es-ES', {
+      timeZone: tz,
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(d)
+  } catch {
+    return new Intl.DateTimeFormat('es-ES', {
+      timeZone: 'UTC',
+      day: '2-digit',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(d)
+  }
 }
 
 // Solo la hora local en la zona horaria indicada.
 export function formatTimeLocal(d: Date, tz: string): string {
-  return new Intl.DateTimeFormat('es-ES', {
-    timeZone: tz,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).format(d)
+  try {
+    return new Intl.DateTimeFormat('es-ES', {
+      timeZone: tz,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(d)
+  } catch {
+    return new Intl.DateTimeFormat('es-ES', {
+      timeZone: 'UTC',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(d)
+  }
 }
 
 /** Formatea coordenadas: "25.29°N · 104.14°O" */

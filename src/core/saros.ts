@@ -13,6 +13,7 @@
 
 import { AstroTime } from 'astronomy-engine'
 import { SAROS_PERIOD_DAYS, ECLIPSE_SEASON_DAYS } from './constants'
+import { lookupCatalogSaros } from '../data/sarosCatalog'
 
 // Nodo lunar: "ascendente" cuando la Luna cruza la eclíptica hacia el
 // norte y "descendente" cuando la cruza hacia el sur.
@@ -77,6 +78,8 @@ export interface SarosInput {
  * Agrupa por temporada; en temporadas con dos eclipses, el de menor gamma
  * (eje más cercano al centro de la Tierra, eclipse más profundo) es el
  * primario y el otro recibe el secundario (S ± 38).
+ * Si el catálogo NASA embebido (sarosCatalog) contiene el peak dentro de 12h,
+ * se usa el valor del catálogo como fuente de verdad (fallback heurístico si no).
  */
 export function assignSaros(eclipses: SarosInput[]): SarosAssignment[] {
   const sorted = [...eclipses].sort((a, b) => +a.peak - +b.peak)
@@ -93,12 +96,34 @@ export function assignSaros(eclipses: SarosInput[]): SarosAssignment[] {
   for (const g of groups) {
     const primary = primarySarosAt(g[0].peak)
     if (g.length === 1) {
-      result.set(g[0].peak, { saros: primary, node: nodeOf(primary), secondary: false })
+      const catalog = lookupCatalogSaros(g[0].peak)
+      const saros = catalog ?? primary
+      const secondary = catalog !== undefined ? catalog !== primary : false
+      result.set(g[0].peak, { saros, node: nodeOf(saros), secondary })
     } else {
-      const [a, b] = [...g].sort((x, y) => x.gamma - y.gamma)
-      result.set(a.peak, { saros: primary, node: nodeOf(primary), secondary: false })
-      const sec = secondarySaros(primary)
-      result.set(b.peak, { saros: sec, node: nodeOf(sec), secondary: true })
+      // temporada doble: prioriza catálogo individual por peak
+      const catalogs = g.map((e) => lookupCatalogSaros(e.peak))
+      const allCatalog = catalogs.every((c) => c !== undefined)
+      if (allCatalog) {
+        for (let i = 0; i < g.length; i++) {
+          const saros = catalogs[i]!
+          const secondary = saros !== primary
+          result.set(g[i].peak, { saros, node: nodeOf(saros), secondary })
+        }
+      } else {
+        const [a, b] = [...g].sort((x, y) => x.gamma - y.gamma)
+        // intenta catálogo para cada uno individualmente, si no fallback gamma
+        const sarosA = lookupCatalogSaros(a.peak) ?? primary
+        const sarosB = lookupCatalogSaros(b.peak) ?? secondarySaros(primary)
+        // si A ya tomó secondary, intercambiar
+        if (sarosA !== primary && sarosB === primary) {
+          result.set(a.peak, { saros: sarosA, node: nodeOf(sarosA), secondary: true })
+          result.set(b.peak, { saros: sarosB, node: nodeOf(sarosB), secondary: false })
+        } else {
+          result.set(a.peak, { saros: sarosA, node: nodeOf(sarosA), secondary: sarosA !== primary })
+          result.set(b.peak, { saros: sarosB, node: nodeOf(sarosB), secondary: true })
+        }
+      }
     }
   }
   return sorted.map((e) => result.get(e.peak)!)
